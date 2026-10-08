@@ -98,14 +98,13 @@ public final class PasswordHashingUtils {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     /**
-     * Hashes the password with PBKDF2-HMAC-SHA256 and a random per-password salt. The returned value
-     * is the hex encoded salt followed by the hex encoded derived key.
+     * Hashes the password with PBKDF2-HMAC-SHA256 and a random per-password salt. The returned
+     * value is the hex encoded salt followed by the hex encoded derived key.
      */
     public static String pbkdf2Hash(String rawPassword) {
         byte[] salt = new byte[PBKDF2_SALT_BYTES];
         SECURE_RANDOM.nextBytes(salt);
-        return EncodingUtils.bytesToHex(salt)
-                + EncodingUtils.bytesToHex(pbkdf2(rawPassword, salt));
+        return EncodingUtils.bytesToHex(salt) + EncodingUtils.bytesToHex(pbkdf2(rawPassword, salt));
     }
 
     /** Constant time verification of a password against a value produced by {@link #pbkdf2Hash}. */
