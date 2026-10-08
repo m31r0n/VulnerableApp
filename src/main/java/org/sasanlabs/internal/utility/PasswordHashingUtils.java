@@ -2,7 +2,10 @@ package org.sasanlabs.internal.utility;
 
 import java.nio.charset.StandardCharsets;
 import java.security.*;
+import java.security.spec.InvalidKeySpecException;
 import javax.crypto.Cipher;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -85,6 +88,68 @@ public final class PasswordHashingUtils {
 
     public static String unsaltedSha256Hex(String rawPassword) {
         return getHashAsHex(rawPassword, HashAlgorithm.SHA256);
+    }
+
+    // PBKDF2 parameters (OWASP Password Storage Cheat Sheet)
+    private static final String PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA256";
+    private static final int PBKDF2_ITERATIONS = 210_000;
+    private static final int PBKDF2_SALT_BYTES = 16;
+    private static final int PBKDF2_KEY_BITS = 256;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+    /**
+     * Hashes the password with PBKDF2-HMAC-SHA256 and a random per-password salt. The returned value
+     * is the hex encoded salt followed by the hex encoded derived key.
+     */
+    public static String pbkdf2Hash(String rawPassword) {
+        byte[] salt = new byte[PBKDF2_SALT_BYTES];
+        SECURE_RANDOM.nextBytes(salt);
+        return EncodingUtils.bytesToHex(salt)
+                + EncodingUtils.bytesToHex(pbkdf2(rawPassword, salt));
+    }
+
+    /** Constant time verification of a password against a value produced by {@link #pbkdf2Hash}. */
+    public static boolean isValidPbkdf2(String rawPassword, String storedHash) {
+        if (rawPassword == null
+                || storedHash == null
+                || storedHash.length() != (PBKDF2_SALT_BYTES + PBKDF2_KEY_BITS / 8) * 2) {
+            return false;
+        }
+        try {
+            byte[] salt = hexToBytes(storedHash.substring(0, PBKDF2_SALT_BYTES * 2));
+            byte[] expected = hexToBytes(storedHash.substring(PBKDF2_SALT_BYTES * 2));
+            return MessageDigest.isEqual(expected, pbkdf2(rawPassword, salt));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static byte[] pbkdf2(String rawPassword, byte[] salt) {
+        PBEKeySpec spec =
+                new PBEKeySpec(rawPassword.toCharArray(), salt, PBKDF2_ITERATIONS, PBKDF2_KEY_BITS);
+        try {
+            return SecretKeyFactory.getInstance(PBKDF2_ALGORITHM).generateSecret(spec).getEncoded();
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new IllegalStateException("PBKDF2 unavailable", e);
+        } finally {
+            spec.clearPassword();
+        }
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        if (hex.length() % 2 != 0) {
+            throw new IllegalArgumentException("Invalid hex string");
+        }
+        byte[] out = new byte[hex.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            int hi = Character.digit(hex.charAt(2 * i), 16);
+            int lo = Character.digit(hex.charAt(2 * i + 1), 16);
+            if (hi < 0 || lo < 0) {
+                throw new IllegalArgumentException("Invalid hex string");
+            }
+            out[i] = (byte) ((hi << 4) + lo);
+        }
+        return out;
     }
 
     // BC not used for bcrypt due to extra complexity for BC implementation
